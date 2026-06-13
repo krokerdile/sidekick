@@ -673,7 +673,13 @@ function sidekick.start(options)
   config.eventsFile = config.home .. "/state/events.jsonl"
   config.character = config.home .. "/assets/character-widget-v2.png"
   config.cli = config.home .. "/bin/sidekick"
-  config.tmux = "/opt/homebrew/bin/tmux"
+  config.tmux = (function()
+    if options and options.tmux then return options.tmux end
+    for _, candidate in ipairs({ "/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux" }) do
+      if hs.fs.attributes(candidate) then return candidate end
+    end
+    return "tmux"
+  end)()
   config.bubbleDuration = options and options.bubbleDuration or 8
 
   createCanvas()
