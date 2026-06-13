@@ -1,0 +1,5 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "sidekick-test-session",
+  "cwd": "/Users/mac_al03235502/Desktop/Hyunu/krokerdile"
+}

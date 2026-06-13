@@ -1,0 +1,6 @@
+{
+  "hook_event_name": "UserPromptSubmit",
+  "session_id": "sidekick-test-session",
+  "cwd": "/Users/mac_al03235502/Desktop/Hyunu/krokerdile",
+  "prompt": "Sidekick MVP를 구현해줘. api_key=secret-value 는 저장되면 안 돼."
+}
