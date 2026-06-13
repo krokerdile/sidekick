@@ -143,6 +143,11 @@ assert.ok(confirmEvent, "confirm.requested 이벤트가 존재해야 함");
 assert.equal(confirmEvent.status, "waiting");
 assert.ok(confirmEvent.promptPreview.startsWith("Bash:"), "tool 이름이 포함되어야 함");
 assert.equal(confirmEvent.agent, "claude");
+
+const claudeTurnStart = allEvents.findLast((e) => e.agent === "claude" && e.eventType === "turn.started");
+assert.ok(claudeTurnStart, "claude turn.started 이벤트가 존재해야 함");
+assert.equal(confirmEvent.turnId, claudeTurnStart.turnId, "confirm.requested는 현재 turn의 turnId를 공유해야 함");
+assert.equal(confirmEvent.turnNumber, claudeTurnStart.turnNumber, "confirm.requested는 현재 turnNumber를 공유해야 함");
 assert.match(
   fs.readFileSync(path.join(configHome, ".hammerspoon", "init.lua"), "utf8"),
   /require\("sidekick-init"\)/
