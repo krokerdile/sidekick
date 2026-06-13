@@ -61,6 +61,7 @@ local function reduceTasks(events)
       or event.eventType == "turn.started"
       or event.eventType == "turn.completed"
       or event.eventType == "turn.failed"
+      or event.eventType == "confirm.requested"
       or event.eventType == "session.ended"
     if isSessionEvent then
       local key
@@ -76,7 +77,9 @@ local function reduceTasks(events)
         if event.eventType == "session.ended" then
           latestBySession[key] = nil
         else
-          event.unread = (event.eventType == "turn.completed" or event.eventType == "turn.failed")
+          event.unread = (event.eventType == "turn.completed"
+            or event.eventType == "turn.failed"
+            or event.eventType == "confirm.requested")
             and not readIds[event.eventId]
           latestBySession[key] = event
         end
@@ -102,7 +105,8 @@ local function latestBubbleEvent(events)
     local event = events[index]
     if event.eventType == "turn.started"
       or event.eventType == "turn.completed"
-      or event.eventType == "turn.failed" then
+      or event.eventType == "turn.failed"
+      or event.eventType == "confirm.requested" then
       return event
     end
   end
@@ -224,6 +228,8 @@ local function showBubble(task)
   local result
   if task.status == "running" then
     result = "작업 중"
+  elseif task.status == "waiting" then
+    result = "확인 대기"
   elseif task.status == "failed" then
     result = "작업 실패"
   else
@@ -400,6 +406,7 @@ local function showMenu()
       local task = tasks[index]
       selectedTasks[index] = task
       local status = task.status == "running" and "작업 중"
+        or task.status == "waiting" and "확인 대기"
         or task.status == "failed" and "실패"
         or task.status == "idle" and "대기"
         or "완료"
