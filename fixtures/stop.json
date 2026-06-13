@@ -1,0 +1,6 @@
+{
+  "hook_event_name": "Stop",
+  "session_id": "sidekick-test-session",
+  "cwd": "/Users/mac_al03235502/Desktop/Hyunu/krokerdile",
+  "last_assistant_message": "Sidekick MVP 구현과 검증을 완료했습니다."
+}
