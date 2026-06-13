@@ -87,6 +87,7 @@ for (let index = 0; index < 2; index += 1) {
       ...process.env,
       HOME: configHome,
       CODEX_HOME: path.join(configHome, ".codex"),
+      CLAUDE_CONFIG_DIR: path.join(configHome, ".claude"),
       SIDEKICK_HOME: path.join(configHome, ".sidekick")
     }
   });
