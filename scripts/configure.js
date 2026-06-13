@@ -9,8 +9,8 @@ const profilesOnly = process.argv.includes("--profiles-only");
 const home = process.env.HOME || os.homedir();
 const sidekickHome = process.env.SIDEKICK_HOME || path.join(home, ".sidekick");
 const commandFor = (agent) => `${sidekickHome}/bin/sidekick hook ${agent}`;
-const codexEvents = ["SessionStart", "UserPromptSubmit", "Stop"];
-const claudeEvents = ["SessionStart", "UserPromptSubmit", "Stop", "PreToolUse"];
+const codexEvents = ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"];
+const claudeEvents = ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "PreToolUse"];
 
 function loadJson(file) {
   try {

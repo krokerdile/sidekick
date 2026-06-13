@@ -98,7 +98,7 @@ const codexHooks = JSON.parse(
   fs.readFileSync(path.join(configHome, ".codex", "hooks.json"), "utf8")
 ).hooks;
 assert.equal(codexHooks.Stop[0].hooks[0].command, "existing-hook");
-for (const eventName of ["SessionStart", "UserPromptSubmit", "Stop"]) {
+for (const eventName of ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"]) {
   const sidekickHooks = codexHooks[eventName].flatMap((group) => group.hooks).filter((hook) =>
     hook.command.includes("/bin/sidekick hook codex")
   );
@@ -107,7 +107,7 @@ for (const eventName of ["SessionStart", "UserPromptSubmit", "Stop"]) {
 const perHooks = JSON.parse(
   fs.readFileSync(path.join(configHome, ".codex-per", "hooks.json"), "utf8")
 ).hooks;
-for (const eventName of ["SessionStart", "UserPromptSubmit", "Stop"]) {
+for (const eventName of ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"]) {
   assert.equal(
     perHooks[eventName].flatMap((group) => group.hooks).filter((hook) =>
       hook.command.includes("/bin/sidekick hook codex")
@@ -119,7 +119,7 @@ for (const claudeHome of [".claude", ".claude-personal"]) {
   const claudeHooks = JSON.parse(
     fs.readFileSync(path.join(configHome, claudeHome, "settings.json"), "utf8")
   ).hooks;
-  for (const eventName of ["SessionStart", "UserPromptSubmit", "Stop", "PreToolUse"]) {
+  for (const eventName of ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "PreToolUse"]) {
     assert.equal(
       claudeHooks[eventName].flatMap((group) => group.hooks).filter((hook) =>
         hook.command.includes("/bin/sidekick hook claude")
@@ -132,6 +132,7 @@ for (const claudeHome of [".claude", ".claude-personal"]) {
 run(["hook", "claude"], "session-start.json");
 run(["hook", "claude"], "prompt-submit.json");
 run(["hook", "claude"], "pre-tool-use.json");
+run(["hook", "claude"], "session-end.json");
 
 const allEvents = fs
   .readFileSync(eventsFile, "utf8")
@@ -148,6 +149,18 @@ const claudeTurnStart = allEvents.findLast((e) => e.agent === "claude" && e.even
 assert.ok(claudeTurnStart, "claude turn.started 이벤트가 존재해야 함");
 assert.equal(confirmEvent.turnId, claudeTurnStart.turnId, "confirm.requested는 현재 turn의 turnId를 공유해야 함");
 assert.equal(confirmEvent.turnNumber, claudeTurnStart.turnNumber, "confirm.requested는 현재 turnNumber를 공유해야 함");
+
+const allEventsAfterEnd = fs
+  .readFileSync(eventsFile, "utf8")
+  .trim()
+  .split("\n")
+  .map(JSON.parse);
+const sessionEndEvent = allEventsAfterEnd.findLast((e) => e.eventType === "session.ended");
+assert.ok(sessionEndEvent, "session.ended 이벤트가 존재해야 함");
+assert.equal(sessionEndEvent.agent, "claude");
+assert.equal(sessionEndEvent.sessionId, "sidekick-test-session");
+assert.equal(sessionEndEvent.status, "ended");
+
 assert.match(
   fs.readFileSync(path.join(configHome, ".hammerspoon", "init.lua"), "utf8"),
   /require\("sidekick-init"\)/
