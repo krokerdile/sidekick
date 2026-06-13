@@ -1,0 +1,302 @@
+#!/usr/bin/env node
+
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const crypto = require("node:crypto");
+const { execFileSync } = require("node:child_process");
+
+const home = process.env.SIDEKICK_HOME || path.join(os.homedir(), ".sidekick");
+const stateDir = path.join(home, "state");
+const logDir = path.join(home, "logs");
+const eventsFile = path.join(stateDir, "events.jsonl");
+const hookLog = path.join(logDir, "hook-errors.log");
+
+function ensureDirectories() {
+  fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(logDir, { recursive: true, mode: 0o700 });
+}
+
+function logError(scope, error) {
+  try {
+    ensureDirectories();
+    const message = error instanceof Error ? error.message : String(error);
+    fs.appendFileSync(
+      hookLog,
+      `${new Date().toISOString()} ${scope} ${message.replace(/\s+/g, " ").slice(0, 500)}\n`,
+      { mode: 0o600 }
+    );
+  } catch {
+    // Sidekick must never block the agent because logging failed.
+  }
+}
+
+function readStdin() {
+  const input = fs.readFileSync(0, "utf8").trim();
+  return input ? JSON.parse(input) : {};
+}
+
+function run(command, args, cwd) {
+  return execFileSync(command, args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+    timeout: 1500
+  }).trim();
+}
+
+function redact(value) {
+  return String(value || "")
+    .replace(/\b(sk-[A-Za-z0-9_-]{16,})\b/g, "[REDACTED]")
+    .replace(/\b(gh[pousr]_[A-Za-z0-9]{20,})\b/g, "[REDACTED]")
+    .replace(
+      /\b(api[_-]?key|access[_-]?token|authorization|password)\s*[:=]\s*["']?[^\s"',}]+/gi,
+      "$1=[REDACTED]"
+    )
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 300);
+}
+
+function gitContext(cwd) {
+  try {
+    const root = run("git", ["rev-parse", "--show-toplevel"], cwd);
+    let branch = null;
+    try {
+      branch = run("git", ["branch", "--show-current"], cwd) || null;
+    } catch {
+      branch = null;
+    }
+    return { repo: path.basename(root), branch };
+  } catch {
+    return { repo: path.basename(cwd), branch: null };
+  }
+}
+
+function tmuxContext() {
+  const paneId = process.env.TMUX_PANE;
+  if (!paneId || !/^%\d+$/.test(paneId)) return null;
+
+  try {
+    const format = [
+      "#{pane_id}",
+      "#{session_name}",
+      "#{window_id}",
+      "#{window_index}",
+      "#{pane_index}",
+      "#{client_tty}",
+      "#{socket_path}"
+    ].join("|");
+    const values = run("tmux", ["display-message", "-p", "-t", paneId, format]).split("|");
+    if (values.length !== 7) return null;
+    return {
+      paneId: values[0],
+      sessionName: values[1],
+      windowId: values[2],
+      windowIndex: values[3],
+      paneIndex: values[4],
+      clientTty: values[5] || null,
+      socketPath: values[6] || null
+    };
+  } catch {
+    return { paneId, clientTty: null };
+  }
+}
+
+function readEvents() {
+  try {
+    return fs
+      .readFileSync(eventsFile, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .flatMap((line) => {
+        try {
+          return [JSON.parse(line)];
+        } catch {
+          return [];
+        }
+      });
+  } catch {
+    return [];
+  }
+}
+
+function appendEvent(event) {
+  ensureDirectories();
+  const line = `${JSON.stringify(event)}\n`;
+  if (Buffer.byteLength(line) > 4096) {
+    throw new Error("event exceeds 4KB limit");
+  }
+  fs.appendFileSync(eventsFile, line, { encoding: "utf8", mode: 0o600 });
+  fs.chmodSync(eventsFile, 0o600);
+}
+
+function isDuplicateTerminalEvent(event, events) {
+  if (event.eventType !== "turn.completed" && event.eventType !== "turn.failed") return false;
+  if (!event.turnId) return false;
+  return events.some(
+    (existing) =>
+      existing.agent === event.agent &&
+      existing.turnId === event.turnId &&
+      existing.eventType === event.eventType
+  );
+}
+
+function eventTypeFor(hookName) {
+  return {
+    SessionStart: "session.started",
+    UserPromptSubmit: "turn.started",
+    Stop: "turn.completed",
+    StopFailure: "turn.failed",
+    SessionEnd: "session.ended"
+  }[hookName];
+}
+
+function createHookEvent(agent, input) {
+  const hookName = input.hook_event_name || input.hookEventName;
+  const eventType = eventTypeFor(hookName);
+  if (!eventType) return null;
+
+  const sessionId = String(input.session_id || input.sessionId || "").trim();
+  if (!sessionId) return null;
+
+  const previous = readEvents().filter((event) => event.sessionId === sessionId);
+  const starts = previous.filter((event) => event.eventType === "turn.started");
+  const latestStart = starts.at(-1);
+  const isTurnEvent = eventType.startsWith("turn.");
+  const turnNumber =
+    eventType === "turn.started" ? starts.length + 1 : latestStart?.turnNumber || starts.length || null;
+  const turnId = isTurnEvent && turnNumber ? `${sessionId}:${turnNumber}` : null;
+  const now = new Date();
+  const cwd = path.resolve(input.cwd || process.cwd());
+  const git = gitContext(cwd);
+  const prompt =
+    eventType === "turn.started"
+      ? input.prompt || input.user_prompt || input.userPrompt
+      : latestStart?.promptPreview;
+  const startedAt = latestStart?.occurredAt;
+  const durationMs =
+    eventType === "turn.completed" || eventType === "turn.failed"
+      ? startedAt
+        ? Math.max(0, now.getTime() - new Date(startedAt).getTime())
+        : null
+      : null;
+
+  return {
+    schemaVersion: 1,
+    eventId: crypto.randomUUID(),
+    eventType,
+    occurredAt: now.toISOString(),
+    agent,
+    sessionId,
+    turnId,
+    turnNumber,
+    cwd,
+    repo: git.repo,
+    branch: git.branch,
+    promptPreview: redact(prompt) || null,
+    summaryPreview: redact(input.last_assistant_message || input.lastAssistantMessage) || null,
+    status: {
+      "session.started": "idle",
+      "turn.started": "running",
+      "turn.completed": "completed",
+      "turn.failed": "failed",
+      "session.ended": "ended"
+    }[eventType],
+    durationMs,
+    tmux: tmuxContext() || latestStart?.tmux || null,
+    source: { hookEventName: hookName }
+  };
+}
+
+function reduceTasks(events) {
+  const readIds = new Set(
+    events.filter((event) => event.eventType === "task.read").map((event) => event.targetEventId)
+  );
+  const terminalEvents = events.filter(
+    (event) => event.eventType === "turn.completed" || event.eventType === "turn.failed"
+  );
+  const latestBySession = new Map();
+  for (const event of terminalEvents) {
+    const key = event.sessionId
+      ? `${event.agent || "unknown"}|${event.sessionId}`
+      : event.turnId
+        ? `${event.agent || "unknown"}|${event.turnId}`
+        : event.eventId;
+    const previous = latestBySession.get(key);
+    if (!previous || String(event.occurredAt) >= String(previous.occurredAt)) {
+      latestBySession.set(key, {
+        ...event,
+        unread: !readIds.has(event.eventId)
+      });
+    }
+  }
+  return [...latestBySession.values()]
+    .sort((a, b) => String(b.occurredAt).localeCompare(String(a.occurredAt)));
+}
+
+function handleHook(agent) {
+  try {
+    const event = createHookEvent(agent, readStdin());
+    if (event && !isDuplicateTerminalEvent(event, readEvents())) appendEvent(event);
+  } catch (error) {
+    logError(`hook:${agent}`, error);
+  }
+}
+
+function handleRead(eventId) {
+  if (!/^[0-9a-f-]{36}$/i.test(eventId || "")) {
+    throw new Error("invalid event ID");
+  }
+  appendEvent({
+    schemaVersion: 1,
+    eventId: crypto.randomUUID(),
+    eventType: "task.read",
+    occurredAt: new Date().toISOString(),
+    targetEventId: eventId
+  });
+}
+
+function handleFocus(paneId, clientTty) {
+  if (!/^%\d+$/.test(paneId || "")) throw new Error("invalid tmux pane ID");
+  if (clientTty && !/^\/dev\/ttys\d+$/.test(clientTty)) throw new Error("invalid tmux client TTY");
+
+  run("tmux", ["display-message", "-p", "-t", paneId, "#{pane_id}"]);
+  const clients = run("tmux", ["list-clients", "-F", "#{client_tty}"])
+    .split("\n")
+    .filter(Boolean);
+  const targetClient = clients.includes(clientTty) ? clientTty : clients[0];
+  if (!targetClient) throw new Error("no attached tmux client");
+  run("tmux", ["switch-client", "-c", targetClient, "-t", paneId]);
+  run("tmux", ["select-pane", "-t", paneId]);
+}
+
+function main() {
+  const [command, ...args] = process.argv.slice(2);
+  if (command === "hook") {
+    handleHook(args[0] || "unknown");
+    return;
+  }
+  if (command === "list") {
+    process.stdout.write(`${JSON.stringify(reduceTasks(readEvents()), null, 2)}\n`);
+    return;
+  }
+  if (command === "read") {
+    handleRead(args[0]);
+    return;
+  }
+  if (command === "focus") {
+    handleFocus(args[0], args[1] || null);
+    return;
+  }
+  process.stderr.write("Usage: sidekick hook <agent> | list | read <event-id> | focus <pane-id> [client-tty]\n");
+  process.exitCode = 2;
+}
+
+try {
+  main();
+} catch (error) {
+  logError("cli", error);
+  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+  process.exitCode = 1;
+}
