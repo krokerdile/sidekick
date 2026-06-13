@@ -119,6 +119,15 @@ end
 
 local function refreshCanvas()
   if not canvas then return end
+  local count = unreadCount()
+  if count == 0 then
+    canvas["badge-bg"].hidden = true
+    canvas["badge-text"].hidden = true
+  else
+    canvas["badge-text"].text = count > 9 and "9+" or tostring(count)
+    canvas["badge-bg"].hidden = false
+    canvas["badge-text"].hidden = false
+  end
 end
 
 local function bubblesEnabled()
@@ -608,6 +617,27 @@ local function createCanvas()
       trackMouseUp = true,
       trackMouseMove = true,
       trackMouseByBounds = true
+    },
+    {
+      id = "badge-bg",
+      type = "circle",
+      action = "fill",
+      fillColor = { red = 0.88, green = 0.22, blue = 0.22, alpha = 1 },
+      frame = { x = "66%", y = "0%", w = "28%", h = "28%" },
+      hidden = true,
+      withShadow = true,
+      shadow = { blurRadius = 4, color = { white = 0, alpha = 0.45 }, offset = { h = 1, w = 0 } }
+    },
+    {
+      id = "badge-text",
+      type = "text",
+      text = "",
+      textColor = { white = 1 },
+      textFont = ".AppleSystemUIFont",
+      textSize = 11,
+      textAlignment = "center",
+      frame = { x = "66%", y = "2%", w = "28%", h = "26%" },
+      hidden = true
     }
   })
   canvas:mouseCallback(function(_, message)
