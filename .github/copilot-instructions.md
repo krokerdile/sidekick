@@ -1,5 +1,11 @@
 # Sidekick — Copilot Instructions
 
+## 리뷰 언어
+
+모든 코드 리뷰 코멘트는 **한국어**로 작성한다. 영어로 작성하지 않는다.
+
+---
+
 Sidekick은 Codex / Claude Code의 작업 완료를 macOS 화면 위 캐릭터 위젯으로 알려주는 로컬 도구다.
 
 ## 아키텍처
