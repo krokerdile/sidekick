@@ -118,7 +118,7 @@ for (const claudeHome of [".claude", ".claude-personal"]) {
   const claudeHooks = JSON.parse(
     fs.readFileSync(path.join(configHome, claudeHome, "settings.json"), "utf8")
   ).hooks;
-  for (const eventName of ["SessionStart", "UserPromptSubmit", "Stop"]) {
+  for (const eventName of ["SessionStart", "UserPromptSubmit", "Stop", "PreToolUse"]) {
     assert.equal(
       claudeHooks[eventName].flatMap((group) => group.hooks).filter((hook) =>
         hook.command.includes("/bin/sidekick hook claude")
@@ -127,6 +127,21 @@ for (const claudeHome of [".claude", ".claude-personal"]) {
     );
   }
 }
+
+run(["hook", "claude"], "session-start.json");
+run(["hook", "claude"], "prompt-submit.json");
+run(["hook", "claude"], "pre-tool-use.json");
+
+const allEvents = fs
+  .readFileSync(eventsFile, "utf8")
+  .trim()
+  .split("\n")
+  .map(JSON.parse);
+const confirmEvent = allEvents.findLast((e) => e.eventType === "confirm.requested");
+assert.ok(confirmEvent, "confirm.requested 이벤트가 존재해야 함");
+assert.equal(confirmEvent.status, "waiting");
+assert.ok(confirmEvent.promptPreview.startsWith("Bash:"), "tool 이름이 포함되어야 함");
+assert.equal(confirmEvent.agent, "claude");
 assert.match(
   fs.readFileSync(path.join(configHome, ".hammerspoon", "init.lua"), "utf8"),
   /require\("sidekick-init"\)/

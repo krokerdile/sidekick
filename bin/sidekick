@@ -148,7 +148,8 @@ function eventTypeFor(hookName) {
     UserPromptSubmit: "turn.started",
     Stop: "turn.completed",
     StopFailure: "turn.failed",
-    SessionEnd: "session.ended"
+    SessionEnd: "session.ended",
+    PreToolUse: "confirm.requested"
   }[hookName];
 }
 
@@ -163,13 +164,27 @@ function createHookEvent(agent, input) {
   const previous = readEvents().filter((event) => event.sessionId === sessionId);
   const starts = previous.filter((event) => event.eventType === "turn.started");
   const latestStart = starts.at(-1);
-  const isTurnEvent = eventType.startsWith("turn.");
+  const isTurnEvent = eventType.startsWith("turn.") || eventType === "confirm.requested";
   const turnNumber =
     eventType === "turn.started" ? starts.length + 1 : latestStart?.turnNumber || starts.length || null;
   const turnId = isTurnEvent && turnNumber ? `${sessionId}:${turnNumber}` : null;
   const now = new Date();
   const cwd = path.resolve(input.cwd || process.cwd());
   const git = gitContext(cwd);
+  const toolName = input.tool_name || input.toolName || null;
+  const toolInput = input.tool_input || input.toolInput || null;
+  const toolPreview = eventType === "confirm.requested" && toolName
+    ? (() => {
+        let detail = "";
+        if (toolInput) {
+          if (typeof toolInput.command === "string") detail = toolInput.command;
+          else if (typeof toolInput.path === "string") detail = toolInput.path;
+          else if (typeof toolInput.query === "string") detail = toolInput.query;
+          else detail = JSON.stringify(toolInput).slice(0, 200);
+        }
+        return redact(`${toolName}: ${detail}`);
+      })()
+    : null;
   const prompt =
     eventType === "turn.started"
       ? input.prompt || input.user_prompt || input.userPrompt
@@ -194,14 +209,15 @@ function createHookEvent(agent, input) {
     cwd,
     repo: git.repo,
     branch: git.branch,
-    promptPreview: redact(prompt) || null,
+    promptPreview: eventType === "confirm.requested" ? toolPreview : (redact(prompt) || null),
     summaryPreview: redact(input.last_assistant_message || input.lastAssistantMessage) || null,
     status: {
       "session.started": "idle",
       "turn.started": "running",
       "turn.completed": "completed",
       "turn.failed": "failed",
-      "session.ended": "ended"
+      "session.ended": "ended",
+      "confirm.requested": "waiting"
     }[eventType],
     durationMs,
     tmux: tmuxContext() || latestStart?.tmux || null,
