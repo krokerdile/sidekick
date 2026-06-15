@@ -187,7 +187,6 @@ local function setBadge(label)
     textFont = ".AppleSystemUIFont",
     textSize = textSize,
     textAlignment = "center",
-    backgroundColor = { alpha = 0 },
     frame = { x = bx, y = math.floor(bs * 0.15), w = bw, h = bs }
   })
 end
@@ -658,7 +657,10 @@ local function beginDrag()
 
   dragTimer = hs.timer.doEvery(0.01, function()
     if not dragging then return end
-    if not hs.eventtap.checkMouseButtons().left then
+    local buttons = hs.eventtap.checkMouseButtons()
+    if buttons.left then
+      updateDragPosition()
+    else
       finishDrag()
     end
   end)
@@ -726,7 +728,6 @@ local function createCanvas()
         textFont = ".AppleSystemUIFont",
         textSize = math.floor(bs * 0.55),
         textAlignment = "center",
-        backgroundColor = { alpha = 0 },
         frame = { x = bx, y = math.floor(bs * 0.15), w = bs, h = bs }
       }
     end)()
@@ -740,8 +741,6 @@ local function createCanvas()
         return
       end
       beginDrag()
-    elseif message == "mouseMove" and dragging then
-      updateDragPosition()
     elseif message == "mouseUp" and dragging then
       finishDrag()
     end
