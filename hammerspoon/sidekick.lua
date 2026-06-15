@@ -147,6 +147,7 @@ local function setBadge(label)
     textFont = ".AppleSystemUIFont",
     textSize = textSize,
     textAlignment = "center",
+    backgroundColor = { alpha = 0 },
     frame = { x = bx, y = math.floor(bs * 0.15), w = bw, h = bs }
   })
 end
@@ -682,6 +683,7 @@ local function createCanvas()
         textFont = ".AppleSystemUIFont",
         textSize = math.floor(bs * 0.55),
         textAlignment = "center",
+        backgroundColor = { alpha = 0 },
         frame = { x = bx, y = math.floor(bs * 0.15), w = bs, h = bs }
       }
     end)()
