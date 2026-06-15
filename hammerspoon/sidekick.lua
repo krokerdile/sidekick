@@ -615,9 +615,9 @@ local function stopDragTracking()
   if dragEventTap then dragEventTap:stop(); dragEventTap = nil end
 end
 
-local function updateDragPosition(pos)
+local function updateDragPosition()
   if not dragging then return end
-  local current = pos or hs.mouse.absolutePosition()
+  local current = hs.mouse.absolutePosition()
   if math.abs(current.x - dragStart.x) > 1 or math.abs(current.y - dragStart.y) > 1 then
     dragMoved = true
   end
@@ -660,7 +660,7 @@ local function beginDrag()
     { hs.eventtap.event.types.leftMouseDragged, hs.eventtap.event.types.leftMouseUp },
     function(e)
       if e:getType() == hs.eventtap.event.types.leftMouseDragged then
-        updateDragPosition(e:location())
+        updateDragPosition()
       else
         finishDrag()
       end
