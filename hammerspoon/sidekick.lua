@@ -7,7 +7,7 @@ local bubbleTimer = nil
 local watcher = nil
 local paneTimer = nil
 local menuCanvas = nil
-local dragEventTap = nil
+local dragTimer = nil
 local menuDismissCanvas = nil
 local tasks = {}
 local latestTaskId = nil
@@ -612,7 +612,7 @@ local function handleCharacterClick()
 end
 
 local function stopDragTracking()
-  if dragEventTap then dragEventTap:stop(); dragEventTap = nil end
+  if dragTimer then dragTimer:stop(); dragTimer = nil end
 end
 
 local function updateDragPosition()
@@ -656,17 +656,12 @@ local function beginDrag()
   hideMenu()
   stopDragTracking()
 
-  dragEventTap = hs.eventtap.new(
-    { hs.eventtap.event.types.leftMouseDragged, hs.eventtap.event.types.leftMouseUp },
-    function(e)
-      if e:getType() == hs.eventtap.event.types.leftMouseDragged then
-        updateDragPosition()
-      else
-        finishDrag()
-      end
+  dragTimer = hs.timer.doEvery(0.01, function()
+    if not dragging then return end
+    if not hs.eventtap.checkMouseButtons().left then
+      finishDrag()
     end
-  )
-  dragEventTap:start()
+  end)
 end
 
 local function reloadEvents()
@@ -745,6 +740,8 @@ local function createCanvas()
         return
       end
       beginDrag()
+    elseif message == "mouseMove" and dragging then
+      updateDragPosition()
     elseif message == "mouseUp" and dragging then
       finishDrag()
     end
