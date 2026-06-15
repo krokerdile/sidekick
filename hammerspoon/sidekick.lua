@@ -87,12 +87,21 @@ local function reduceTasks(events)
     end
   end
 
-  local completed = {}
+  -- 같은 pane에 새 세션이 시작된 경우 가장 최근 세션만 유지
+  local latestByPane = {}
   for _, event in pairs(latestBySession) do
     local paneId = event.tmux and event.tmux.paneId
     if paneId and (currentPanes == nil or currentPanes[paneId]) then
-      table.insert(completed, event)
+      local existing = latestByPane[paneId]
+      if not existing or tostring(event.occurredAt) > tostring(existing.occurredAt) then
+        latestByPane[paneId] = event
+      end
     end
+  end
+
+  local completed = {}
+  for _, event in pairs(latestByPane) do
+    table.insert(completed, event)
   end
   table.sort(completed, function(a, b)
     return tostring(a.occurredAt) > tostring(b.occurredAt)
