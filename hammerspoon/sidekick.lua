@@ -15,6 +15,7 @@ local dragging = false
 local dragOffset = nil
 local dragMoved = false
 local dragStart = nil
+local testBadgeTimer = nil
 
 local positionKey = "sidekick.position"
 local bubblesEnabledKey = "sidekick.bubblesEnabled"
@@ -151,16 +152,48 @@ local function unreadCount()
   return count
 end
 
-local function refreshCanvas()
+local function setBadge(label)
   if not canvas then return end
+  local bs = math.floor(config.size * 0.24)
+  local bw = bs + (#label - 1) * math.floor(bs * 0.38)
+  local bx = config.size - bw
+  local textSize = math.floor(bs * 0.55)
+  while canvas:elementCount() > 1 do canvas:removeElement() end
+  canvas:insertElement({
+    id = "badge-bg",
+    type = "rectangle",
+    action = "fill",
+    fillColor = { red = 0.88, green = 0.22, blue = 0.22, alpha = 1 },
+    roundedRectRadii = { xRadius = 50, yRadius = 50 },
+    frame = { x = bx, y = 0, w = bw, h = bs },
+    withShadow = true,
+    shadow = { blurRadius = 4, color = { white = 0, alpha = 0.45 }, offset = { h = 1, w = 0 } }
+  })
+  canvas:insertElement({
+    id = "badge-text",
+    type = "text",
+    text = label,
+    textColor = { white = 1, alpha = 1 },
+    textFont = ".AppleSystemUIFont",
+    textSize = textSize,
+    textAlignment = "center",
+    backgroundColor = { alpha = 0 },
+    frame = { x = bx, y = math.floor(bs * 0.15), w = bw, h = bs }
+  })
+end
+
+local function hideBadge()
+  if not canvas then return end
+  while canvas:elementCount() > 1 do canvas:removeElement() end
+end
+
+local function refreshCanvas()
+  if not canvas or testBadgeTimer then return end
   local count = unreadCount()
   if count == 0 then
-    canvas["badge-bg"].hidden = true
-    canvas["badge-text"].hidden = true
+    hideBadge()
   else
-    canvas["badge-text"].text = count > 9 and "9+" or tostring(count)
-    canvas["badge-bg"].hidden = false
-    canvas["badge-text"].hidden = false
+    setBadge(tostring(count))
   end
 end
 
@@ -655,27 +688,35 @@ local function createCanvas()
       trackMouseMove = true,
       trackMouseByBounds = true
     },
-    {
-      id = "badge-bg",
-      type = "circle",
-      action = "fill",
-      fillColor = { red = 0.88, green = 0.22, blue = 0.22, alpha = 1 },
-      frame = { x = "66%", y = "0%", w = "28%", h = "28%" },
-      hidden = true,
-      withShadow = true,
-      shadow = { blurRadius = 4, color = { white = 0, alpha = 0.45 }, offset = { h = 1, w = 0 } }
-    },
-    {
-      id = "badge-text",
-      type = "text",
-      text = "",
-      textColor = { white = 1 },
-      textFont = ".AppleSystemUIFont",
-      textSize = 11,
-      textAlignment = "center",
-      frame = { x = "66%", y = "2%", w = "28%", h = "26%" },
-      hidden = true
-    }
+    (function()
+      local bs = math.floor(size * 0.24)
+      local bx = size - bs
+      return {
+        id = "badge-bg",
+        type = "rectangle",
+        action = "skip",
+        fillColor = { red = 0.88, green = 0.22, blue = 0.22, alpha = 1 },
+        roundedRectRadii = { xRadius = 50, yRadius = 50 },
+        frame = { x = bx, y = 0, w = bs, h = bs },
+        withShadow = true,
+        shadow = { blurRadius = 4, color = { white = 0, alpha = 0.45 }, offset = { h = 1, w = 0 } }
+      }
+    end)(),
+    (function()
+      local bs = math.floor(size * 0.24)
+      local bx = size - bs
+      return {
+        id = "badge-text",
+        type = "text",
+        text = "",
+        textColor = { white = 1, alpha = 0 },
+        textFont = ".AppleSystemUIFont",
+        textSize = math.floor(bs * 0.55),
+        textAlignment = "center",
+        backgroundColor = { alpha = 0 },
+        frame = { x = bx, y = math.floor(bs * 0.15), w = bs, h = bs }
+      }
+    end)()
   })
   canvas:mouseCallback(function(_, message)
     if message == "mouseDown" then
@@ -783,6 +824,16 @@ end
 
 function sidekick.hideMenu()
   hideMenu()
+end
+
+function sidekick.testBadge(count)
+  if not canvas then return end
+  if testBadgeTimer then testBadgeTimer:stop(); testBadgeTimer = nil end
+  if count == 0 then hideBadge() else setBadge(tostring(count)) end
+  testBadgeTimer = hs.timer.doAfter(8, function()
+    testBadgeTimer = nil
+    refreshCanvas()
+  end)
 end
 
 function sidekick.showBubble(eventId)
