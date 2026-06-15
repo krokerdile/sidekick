@@ -7,7 +7,7 @@ HAMMERSPOON_DIR="$HOME/.hammerspoon"
 
 if [[ "${1:-}" == "--dry-run" ]]; then
   printf 'Would install Sidekick from %s to %s\n' "$SOURCE_DIR" "$TARGET_DIR"
-  printf 'Would install Hammerspoon module to %s/sidekick.lua\n' "$HAMMERSPOON_DIR"
+  printf 'Would symlink Hammerspoon module to %s/sidekick.lua\n' "$HAMMERSPOON_DIR"
   HOME="${HOME}" SIDEKICK_HOME="$TARGET_DIR" node "$SOURCE_DIR/scripts/configure.js"
   exit 0
 fi
@@ -19,8 +19,8 @@ install -m 0755 "$SOURCE_DIR/scripts/configure.js" "$TARGET_DIR/bin/sidekick-pro
 install -m 0644 "$SOURCE_DIR/assets/character.png" "$TARGET_DIR/assets/character.png"
 install -m 0644 "$SOURCE_DIR/assets/character-widget.png" "$TARGET_DIR/assets/character-widget.png"
 install -m 0644 "$SOURCE_DIR/assets/character-widget-v2.png" "$TARGET_DIR/assets/character-widget-v2.png"
-install -m 0644 "$SOURCE_DIR/hammerspoon/sidekick.lua" "$HAMMERSPOON_DIR/sidekick.lua"
-install -m 0644 "$SOURCE_DIR/hammerspoon/init.lua" "$HAMMERSPOON_DIR/sidekick-init.lua"
+ln -sf "$SOURCE_DIR/hammerspoon/sidekick.lua" "$HAMMERSPOON_DIR/sidekick.lua"
+ln -sf "$SOURCE_DIR/hammerspoon/init.lua" "$HAMMERSPOON_DIR/sidekick-init.lua"
 chmod 0700 "$TARGET_DIR" "$TARGET_DIR/state" "$TARGET_DIR/logs"
 HOME="${HOME}" SIDEKICK_HOME="$TARGET_DIR" node "$SOURCE_DIR/scripts/configure.js" --apply
 
