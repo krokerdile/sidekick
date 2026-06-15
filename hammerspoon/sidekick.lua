@@ -624,7 +624,7 @@ local function updateDragPosition()
   local frame = dragScreen and dragScreen:frame()
   if not frame or current.x < frame.x or current.x > frame.x + frame.w
       or current.y < frame.y or current.y > frame.y + frame.h then
-    dragScreen = hs.screen.find(current) or hs.screen.mainScreen()
+    dragScreen = hs.screen.find(current) or dragScreen or hs.screen.mainScreen()
   end
   canvas:topLeft(clampPosition(nextPoint, dragScreen))
 end
