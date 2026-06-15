@@ -7,7 +7,7 @@ local bubbleTimer = nil
 local watcher = nil
 local paneTimer = nil
 local menuCanvas = nil
-local dragTimer = nil
+local dragEventTap = nil
 local menuDismissCanvas = nil
 local tasks = {}
 local latestTaskId = nil
@@ -15,6 +15,7 @@ local dragging = false
 local dragOffset = nil
 local dragMoved = false
 local dragStart = nil
+local dragScreen = nil
 local testBadgeTimer = nil
 
 local positionKey = "sidekick.position"
@@ -611,18 +612,22 @@ local function handleCharacterClick()
 end
 
 local function stopDragTracking()
-  if dragTimer then dragTimer:stop(); dragTimer = nil end
+  if dragEventTap then dragEventTap:stop(); dragEventTap = nil end
 end
 
-local function updateDragPosition()
+local function updateDragPosition(pos)
   if not dragging then return end
-  local current = hs.mouse.absolutePosition()
+  local current = pos or hs.mouse.absolutePosition()
   if math.abs(current.x - dragStart.x) > 1 or math.abs(current.y - dragStart.y) > 1 then
     dragMoved = true
   end
   local nextPoint = { x = current.x - dragOffset.x, y = current.y - dragOffset.y }
-  local screen = hs.screen.find(nextPoint) or hs.screen.mainScreen()
-  canvas:topLeft(clampPosition(nextPoint, screen))
+  local frame = dragScreen and dragScreen:frame()
+  if not frame or nextPoint.x < frame.x or nextPoint.x > frame.x + frame.w
+      or nextPoint.y < frame.y or nextPoint.y > frame.y + frame.h then
+    dragScreen = hs.screen.find(nextPoint) or hs.screen.mainScreen()
+  end
+  canvas:topLeft(clampPosition(nextPoint, dragScreen))
 end
 
 local function finishDrag()
@@ -636,6 +641,7 @@ local function finishDrag()
   end
   dragOffset = nil
   dragStart = nil
+  dragScreen = nil
 end
 
 local function beginDrag()
@@ -645,19 +651,22 @@ local function beginDrag()
   dragMoved = false
   dragStart = mouse
   dragOffset = { x = mouse.x - topLeft.x, y = mouse.y - topLeft.y }
+  dragScreen = hs.screen.find(mouse) or hs.screen.mainScreen()
   hideBubble()
   hideMenu()
   stopDragTracking()
 
-  dragTimer = hs.timer.doEvery(0.01, function()
-    if not dragging then return end
-    local buttons = hs.eventtap.checkMouseButtons()
-    if buttons.left then
-      updateDragPosition()
-    else
-      finishDrag()
+  dragEventTap = hs.eventtap.new(
+    { hs.eventtap.event.types.leftMouseDragged, hs.eventtap.event.types.leftMouseUp },
+    function(e)
+      if e:getType() == hs.eventtap.event.types.leftMouseDragged then
+        updateDragPosition(e:location())
+      else
+        finishDrag()
+      end
     end
-  end)
+  )
+  dragEventTap:start()
 end
 
 local function reloadEvents()
@@ -731,14 +740,11 @@ local function createCanvas()
     if message == "mouseDown" then
       local buttons = hs.eventtap.checkMouseButtons()
       if buttons.right then
-        dragging = false
         stopDragTracking()
         showSettingsMenu()
         return
       end
       beginDrag()
-    elseif message == "mouseMove" and dragging then
-      updateDragPosition()
     elseif message == "mouseUp" and dragging then
       finishDrag()
     end
