@@ -19,6 +19,36 @@ local dragStart = nil
 local positionKey = "sidekick.position"
 local bubblesEnabledKey = "sidekick.bubblesEnabled"
 
+local function findNodeBinDir()
+  local home = os.getenv("HOME")
+  for _, dir in ipairs({ "/opt/homebrew/bin", "/usr/local/bin" }) do
+    if hs.fs.attributes(dir .. "/node") then return dir end
+  end
+  local nvmBase = home .. "/.nvm/versions/node"
+  if hs.fs.attributes(nvmBase) then
+    local versions = {}
+    for entry in hs.fs.dir(nvmBase) do
+      if entry ~= "." and entry ~= ".." then
+        local bin = nvmBase .. "/" .. entry .. "/bin"
+        if hs.fs.attributes(bin .. "/node") then
+          table.insert(versions, bin)
+        end
+      end
+    end
+    table.sort(versions)
+    if #versions > 0 then return versions[#versions] end
+  end
+  return nil
+end
+
+local function newCliTask(callback, args)
+  local t = hs.task.new(config.cli, callback, args)
+  if config.nodeBinDir then
+    t:setEnvironment({ PATH = config.nodeBinDir .. ":/usr/local/bin:/usr/bin:/bin" })
+  end
+  return t
+end
+
 local function readEvents()
   local file = io.open(config.eventsFile, "r")
   if not file then return {} end
@@ -192,9 +222,9 @@ local function focusTask(task)
   end
 
   hs.application.launchOrFocusByBundleID("com.mitchellh.ghostty")
-  hs.task.new(config.cli, function(exitCode, _, stderr)
+  newCliTask(function(exitCode, _, stderr)
     if exitCode == 0 then
-      hs.task.new(config.cli, nil, { "read", task.eventId }):start()
+      newCliTask(nil, { "read", task.eventId }):start()
       task.unread = false
       refreshCanvas()
     else
@@ -680,6 +710,7 @@ function sidekick.start(options)
     end
     return "tmux"
   end)()
+  config.nodeBinDir = (options and options.nodeBinDir) or findNodeBinDir()
   config.bubbleDuration = options and options.bubbleDuration or 8
 
   createCanvas()
