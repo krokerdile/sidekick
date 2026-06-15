@@ -150,12 +150,7 @@ assert.ok(claudeTurnStart, "claude turn.started 이벤트가 존재해야 함");
 assert.equal(confirmEvent.turnId, claudeTurnStart.turnId, "confirm.requested는 현재 turn의 turnId를 공유해야 함");
 assert.equal(confirmEvent.turnNumber, claudeTurnStart.turnNumber, "confirm.requested는 현재 turnNumber를 공유해야 함");
 
-const allEventsAfterEnd = fs
-  .readFileSync(eventsFile, "utf8")
-  .trim()
-  .split("\n")
-  .map(JSON.parse);
-const sessionEndEvent = allEventsAfterEnd.findLast((e) => e.eventType === "session.ended");
+const sessionEndEvent = allEvents.findLast((e) => e.eventType === "session.ended");
 assert.ok(sessionEndEvent, "session.ended 이벤트가 존재해야 함");
 assert.equal(sessionEndEvent.agent, "claude");
 assert.equal(sessionEndEvent.sessionId, "sidekick-test-session");
