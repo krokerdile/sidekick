@@ -211,6 +211,16 @@ local function bubblesEnabled()
   return value == nil or value == true
 end
 
+local function screenForPoint(point)
+  for _, s in ipairs(hs.screen.allScreens()) do
+    local f = s:frame()
+    if point.x >= f.x and point.x < f.x + f.w and point.y >= f.y and point.y < f.y + f.h then
+      return s
+    end
+  end
+  return hs.screen.mainScreen()
+end
+
 local function clampPosition(point, screen)
   local frame = screen:frame()
   return {
@@ -220,7 +230,9 @@ local function clampPosition(point, screen)
 end
 
 local function defaultPosition()
-  local frame = hs.screen.mainScreen():frame()
+  local topLeft = canvas and canvas:topLeft()
+  local screen = (topLeft and screenForPoint(topLeft)) or hs.screen.mainScreen()
+  local frame = screen:frame()
   return {
     x = frame.x + frame.w - config.size - config.margin,
     y = frame.y + frame.h - config.size - config.margin
@@ -232,7 +244,7 @@ local function savedPosition()
   if type(saved) ~= "table" or type(saved.x) ~= "number" or type(saved.y) ~= "number" then
     return defaultPosition()
   end
-  local screen = hs.screen.find({ x = saved.x, y = saved.y }) or hs.screen.mainScreen()
+  local screen = screenForPoint(saved)
   return clampPosition(saved, screen)
 end
 
@@ -624,7 +636,7 @@ local function updateDragPosition()
   local frame = dragScreen and dragScreen:frame()
   if not frame or current.x < frame.x or current.x > frame.x + frame.w
       or current.y < frame.y or current.y > frame.y + frame.h then
-    dragScreen = hs.screen.find(current) or dragScreen or hs.screen.mainScreen()
+    dragScreen = screenForPoint(current)
   end
   canvas:topLeft(clampPosition(nextPoint, dragScreen))
 end
@@ -650,7 +662,7 @@ local function beginDrag()
   dragMoved = false
   dragStart = mouse
   dragOffset = { x = mouse.x - topLeft.x, y = mouse.y - topLeft.y }
-  dragScreen = hs.screen.find(mouse) or hs.screen.mainScreen()
+  dragScreen = screenForPoint(mouse)
   hideBubble()
   hideMenu()
   stopDragTracking()
