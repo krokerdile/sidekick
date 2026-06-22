@@ -573,9 +573,14 @@ local function showMenu()
 end
 
 showSettingsMenu = function()
+  local screens = hs.screen.allScreens()
+  local currentScreen = canvas and screenForPoint(canvas:topLeft())
+  local currentScreenId = currentScreen and currentScreen:id()
+
   local width = 300
   local rowHeight = 46
-  local currentMenu = newMenuCanvas(popupFrame(width, rowHeight * 3))
+  local separatorHeight = 28
+
   local settingsItems = {
     {
       title = (bubblesEnabled() and "✓ " or "") .. "완료 말풍선 표시",
@@ -586,34 +591,87 @@ showSettingsMenu = function()
       end
     },
     { title = "위치를 우하단으로 초기화", fn = resetPosition },
-    { title = "최근 작업 보기", fn = showMenu }
+    { title = "최근 작업 보기", fn = showMenu },
+    { isSeparator = true, label = "모니터" }
   }
-  for index, item in ipairs(settingsItems) do
-    currentMenu:appendElements({
-      {
-        id = "setting-" .. index,
-        type = "rectangle",
-        action = "fill",
-        fillColor = { white = index % 2 == 0 and 0.055 or 0.025 },
-        frame = { x = 0, y = (index - 1) * rowHeight, w = width, h = rowHeight },
-        trackMouseUp = true
-      },
-      {
-        id = "setting-text-" .. index,
-        type = "text",
-        text = item.title,
-        textColor = { white = 0.94 },
-        textFont = ".AppleSystemUIFont",
-        textSize = 15,
-        frame = { x = 16, y = (index - 1) * rowHeight + 12, w = width - 32, h = 24 },
-        trackMouseUp = true
-      }
+  for i, screen in ipairs(screens) do
+    local name = screen:name() or ("모니터 " .. i)
+    local isCurrent = screen:id() == currentScreenId
+    table.insert(settingsItems, {
+      title = (isCurrent and "✓ " or "  ") .. name,
+      fn = function()
+        local frame = screen:frame()
+        canvas:topLeft({
+          x = frame.x + frame.w - config.size - config.margin,
+          y = frame.y + frame.h - config.size - config.margin
+        })
+        savePosition()
+        hideMenu()
+      end
     })
+  end
+
+  local totalHeight = 0
+  for _, item in ipairs(settingsItems) do
+    totalHeight = totalHeight + (item.isSeparator and separatorHeight or rowHeight)
+  end
+
+  local currentMenu = newMenuCanvas(popupFrame(width, totalHeight))
+  local yOffset = 0
+  for index, item in ipairs(settingsItems) do
+    if item.isSeparator then
+      currentMenu:appendElements({
+        {
+          type = "rectangle",
+          action = "fill",
+          fillColor = { white = 0.04 },
+          frame = { x = 0, y = yOffset, w = width, h = separatorHeight }
+        },
+        {
+          type = "text",
+          text = item.label,
+          textColor = { white = 0.45 },
+          textFont = ".AppleSystemUIFont",
+          textSize = 11,
+          frame = { x = 16, y = yOffset + 7, w = 52, h = 16 }
+        },
+        {
+          type = "rectangle",
+          action = "fill",
+          fillColor = { white = 0.28, alpha = 0.5 },
+          frame = { x = 74, y = yOffset + separatorHeight / 2, w = width - 82, h = 1 }
+        }
+      })
+    else
+      currentMenu:appendElements({
+        {
+          id = "setting-" .. index,
+          type = "rectangle",
+          action = "fill",
+          fillColor = { white = index % 2 == 0 and 0.055 or 0.025 },
+          frame = { x = 0, y = yOffset, w = width, h = rowHeight },
+          trackMouseUp = true
+        },
+        {
+          id = "setting-text-" .. index,
+          type = "text",
+          text = item.title,
+          textColor = { white = 0.94 },
+          textFont = ".AppleSystemUIFont",
+          textSize = 15,
+          frame = { x = 16, y = yOffset + 12, w = width - 32, h = 24 },
+          trackMouseUp = true
+        }
+      })
+    end
+    yOffset = yOffset + (item.isSeparator and separatorHeight or rowHeight)
   end
   currentMenu:mouseCallback(function(_, message, elementId)
     if message ~= "mouseUp" then return end
     local index = tonumber(tostring(elementId):match("(%d+)$"))
-    if index and settingsItems[index] then settingsItems[index].fn() end
+    if index and settingsItems[index] and settingsItems[index].fn then
+      settingsItems[index].fn()
+    end
   end)
   currentMenu:show()
 end
