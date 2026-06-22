@@ -15,6 +15,7 @@ local dragging = false
 local dragOffset = nil
 local dragMoved = false
 local dragStart = nil
+local dragScreen = nil
 local testBadgeTimer = nil
 
 local positionKey = "sidekick.position"
@@ -186,7 +187,6 @@ local function setBadge(label)
     textFont = ".AppleSystemUIFont",
     textSize = textSize,
     textAlignment = "center",
-    backgroundColor = { alpha = 0 },
     frame = { x = bx, y = math.floor(bs * 0.15), w = bw, h = bs }
   })
 end
@@ -211,6 +211,16 @@ local function bubblesEnabled()
   return value == nil or value == true
 end
 
+local function screenForPoint(point)
+  for _, s in ipairs(hs.screen.allScreens()) do
+    local f = s:frame()
+    if point.x >= f.x and point.x < f.x + f.w and point.y >= f.y and point.y < f.y + f.h then
+      return s
+    end
+  end
+  return hs.screen.mainScreen()
+end
+
 local function clampPosition(point, screen)
   local frame = screen:frame()
   return {
@@ -220,7 +230,9 @@ local function clampPosition(point, screen)
 end
 
 local function defaultPosition()
-  local frame = hs.screen.mainScreen():frame()
+  local topLeft = canvas and canvas:topLeft()
+  local screen = (topLeft and screenForPoint(topLeft)) or hs.screen.mainScreen()
+  local frame = screen:frame()
   return {
     x = frame.x + frame.w - config.size - config.margin,
     y = frame.y + frame.h - config.size - config.margin
@@ -232,7 +244,7 @@ local function savedPosition()
   if type(saved) ~= "table" or type(saved.x) ~= "number" or type(saved.y) ~= "number" then
     return defaultPosition()
   end
-  local screen = hs.screen.find({ x = saved.x, y = saved.y }) or hs.screen.mainScreen()
+  local screen = screenForPoint(saved)
   return clampPosition(saved, screen)
 end
 
@@ -621,8 +633,12 @@ local function updateDragPosition()
     dragMoved = true
   end
   local nextPoint = { x = current.x - dragOffset.x, y = current.y - dragOffset.y }
-  local screen = hs.screen.find(nextPoint) or hs.screen.mainScreen()
-  canvas:topLeft(clampPosition(nextPoint, screen))
+  local frame = dragScreen and dragScreen:frame()
+  if not frame or current.x < frame.x or current.x > frame.x + frame.w
+      or current.y < frame.y or current.y > frame.y + frame.h then
+    dragScreen = screenForPoint(current)
+  end
+  canvas:topLeft(clampPosition(nextPoint, dragScreen))
 end
 
 local function finishDrag()
@@ -636,6 +652,7 @@ local function finishDrag()
   end
   dragOffset = nil
   dragStart = nil
+  dragScreen = nil
 end
 
 local function beginDrag()
@@ -645,6 +662,7 @@ local function beginDrag()
   dragMoved = false
   dragStart = mouse
   dragOffset = { x = mouse.x - topLeft.x, y = mouse.y - topLeft.y }
+  dragScreen = screenForPoint(mouse)
   hideBubble()
   hideMenu()
   stopDragTracking()
@@ -722,7 +740,6 @@ local function createCanvas()
         textFont = ".AppleSystemUIFont",
         textSize = math.floor(bs * 0.55),
         textAlignment = "center",
-        backgroundColor = { alpha = 0 },
         frame = { x = bx, y = math.floor(bs * 0.15), w = bs, h = bs }
       }
     end)()
@@ -731,14 +748,11 @@ local function createCanvas()
     if message == "mouseDown" then
       local buttons = hs.eventtap.checkMouseButtons()
       if buttons.right then
-        dragging = false
         stopDragTracking()
         showSettingsMenu()
         return
       end
       beginDrag()
-    elseif message == "mouseMove" and dragging then
-      updateDragPosition()
     elseif message == "mouseUp" and dragging then
       finishDrag()
     end
