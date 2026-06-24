@@ -764,8 +764,34 @@ local function reloadEvents()
   end
 end
 
+-- os.time({...})은 입력 필드를 로컬 시간으로 해석하지만 occurredAt은 항상 UTC(toISOString) 문자열이므로,
+-- 로컬-UTC 오프셋을 보정해야 만료 시점이 타임존만큼 어긋나지 않는다.
+local function localUtcOffsetSeconds()
+  local now = os.time()
+  return os.difftime(now, os.time(os.date("!*t", now)))
+end
+
+local function parseOccurredAtUTC(occurredAt)
+  local year, month, day, hour, min, sec = tostring(occurredAt):match(
+    "(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)"
+  )
+  if not year then return nil end
+  local localAsIfUTC = os.time({
+    year = tonumber(year), month = tonumber(month), day = tonumber(day),
+    hour = tonumber(hour), min = tonumber(min), sec = tonumber(sec)
+  })
+  return localAsIfUTC - localUtcOffsetSeconds()
+end
+
+local lastPruneDateKey = "sidekick.lastPruneDate"
+
 -- events.jsonl이 무한히 커지는 것을 막기 위해 7일 지난 이벤트를 atomic rename으로 정리한다(DESIGN.md 14절).
+-- DESIGN.md 14절에 따라 UI 시작 시 하루 한 번만 수행한다.
 local function pruneOldEvents()
+  local today = os.date("%Y-%m-%d")
+  if hs.settings.get(lastPruneDateKey) == today then return end
+  hs.settings.set(lastPruneDateKey, today)
+
   local file = io.open(config.eventsFile, "r")
   if not file then return end
 
@@ -777,14 +803,8 @@ local function pruneOldEvents()
     local occurredAt = ok and type(value) == "table" and value.occurredAt
     local keep = true
     if occurredAt then
-      local year, month, day, hour, min, sec = tostring(occurredAt):match(
-        "(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)"
-      )
-      if year then
-        local eventTime = os.time({
-          year = tonumber(year), month = tonumber(month), day = tonumber(day),
-          hour = tonumber(hour), min = tonumber(min), sec = tonumber(sec)
-        })
+      local eventTime = parseOccurredAtUTC(occurredAt)
+      if eventTime then
         keep = eventTime >= cutoff
       end
     end
@@ -916,6 +936,7 @@ function sidekick.stop()
   if watcher then watcher:stop(); watcher = nil end
   if paneTimer then paneTimer:stop(); paneTimer = nil end
   if reloadDebounceTimer then reloadDebounceTimer:stop(); reloadDebounceTimer = nil end
+  if paneRefreshTask then paneRefreshTask:terminate(); paneRefreshTask = nil end
   stopDragTracking()
   hideBubble()
   hideMenu()
