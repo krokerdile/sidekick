@@ -99,4 +99,5 @@ paneTimer = hs.timer.doEvery(5, refreshActivePanes)  -- 더 이상 reloadEvents 
 
 - `luajit -e "loadfile('hammerspoon/sidekick.lua')"` 로 문법 확인 — OK
 - `node test/run.js` — 통과 (단, hook CLI 레이어만 커버하며 Hammerspoon UI 레이어는 미커버)
-- 미검증: 실제 Hammerspoon Console에서 드래그/클릭/badge/멀티모니터 동작 — Hammerspoon 런타임에서 직접 확인 필요
+- 실제 Hammerspoon 리로드 후 드래그/클릭/badge 동작 직접 확인 완료
+- 미검증: 멀티모니터 환경에서 위치 저장/복원 — 추가 확인 필요
