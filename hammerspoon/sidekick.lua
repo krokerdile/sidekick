@@ -764,8 +764,10 @@ local function reloadEvents()
   end
 end
 
--- os.time({...})은 입력 필드를 로컬 시간으로 해석하지만 occurredAt은 항상 UTC(toISOString) 문자열이므로,
--- 로컬-UTC 오프셋을 보정해야 만료 시점이 타임존만큼 어긋나지 않는다.
+-- os.time({...})은 입력 필드를 로컬 시간으로 해석하지만 occurredAt은 항상 UTC(toISOString) 문자열이다.
+-- localUtcOffsetSeconds()는 (로컬 - UTC) 오프셋(KST면 +9h)을 반환한다.
+-- os.time(UTC 필드)는 실제 epoch보다 그 오프셋만큼 작게 나오므로(local_display(X) = utc_display(X+offset)
+-- 관계에서 X = 실제epoch - offset), 실제 epoch을 구하려면 오프셋을 더해야 한다.
 local function localUtcOffsetSeconds()
   local now = os.time()
   return os.difftime(now, os.time(os.date("!*t", now)))
@@ -780,7 +782,7 @@ local function parseOccurredAtUTC(occurredAt)
     year = tonumber(year), month = tonumber(month), day = tonumber(day),
     hour = tonumber(hour), min = tonumber(min), sec = tonumber(sec)
   })
-  return localAsIfUTC - localUtcOffsetSeconds()
+  return localAsIfUTC + localUtcOffsetSeconds()
 end
 
 local lastPruneDateKey = "sidekick.lastPruneDate"
@@ -814,6 +816,8 @@ local function pruneOldEvents()
       removedAny = true
     end
   end
+  -- 읽는 동안 hook이 새 줄을 append했을 수 있으므로, 읽은 지점 이후 추가된 바이트를 보존해 유실을 막는다.
+  local readUpTo = file:seek()
   file:close()
 
   if not removedAny then return end
@@ -824,6 +828,15 @@ local function pruneOldEvents()
   for _, line in ipairs(kept) do
     tmpFile:write(line, "\n")
   end
+
+  local tailFile = io.open(config.eventsFile, "r")
+  if tailFile then
+    tailFile:seek("set", readUpTo)
+    local tail = tailFile:read("a")
+    tailFile:close()
+    if tail and tail ~= "" then tmpFile:write(tail) end
+  end
+
   tmpFile:close()
   os.rename(tmpPath, config.eventsFile)
 end
