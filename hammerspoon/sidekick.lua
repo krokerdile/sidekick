@@ -6,6 +6,10 @@ local bubble = nil
 local bubbleTimer = nil
 local watcher = nil
 local paneTimer = nil
+local reloadDebounceTimer = nil
+local paneRefreshTask = nil
+local activePanes = nil
+local lastEvents = {}
 local menuCanvas = nil
 local dragTimer = nil
 local menuDismissCanvas = nil
@@ -20,6 +24,10 @@ local testBadgeTimer = nil
 
 local positionKey = "sidekick.position"
 local bubblesEnabledKey = "sidekick.bubblesEnabled"
+
+-- 비동기 pane 캐시 콜백에서 참조하기 위한 순방향 선언
+local reduceTasks
+local refreshCanvas
 
 local function findNodeBinDir()
   local home = os.getenv("HOME")
@@ -66,19 +74,26 @@ local function readEvents()
   return events
 end
 
-local function activePaneIds()
+-- pane 생존 여부는 매 reduce마다 동기 hs.execute로 조회하지 않는다(메인 스레드 블록 방지).
+-- 대신 refreshActivePanes()가 비동기로 채워두는 activePanes 캐시를 참조한다.
+local function refreshActivePanes()
+  if paneRefreshTask then return end
   local command = config.tmux .. " list-panes -a -F '#{pane_id}'"
-  local output, success = hs.execute(command, true)
-  if not success then return nil end
-
-  local paneIds = {}
-  for paneId in tostring(output):gmatch("[^\r\n]+") do
-    paneIds[paneId] = true
-  end
-  return paneIds
+  paneRefreshTask = hs.task.new("/bin/sh", function(exitCode, stdout, _)
+    paneRefreshTask = nil
+    if exitCode ~= 0 then return end
+    local paneIds = {}
+    for paneId in tostring(stdout):gmatch("[^\r\n]+") do
+      paneIds[paneId] = true
+    end
+    activePanes = paneIds
+    tasks = reduceTasks(lastEvents)
+    refreshCanvas()
+  end, { "-c", command })
+  paneRefreshTask:start()
 end
 
-local function reduceTasks(events)
+reduceTasks = function(events)
   local readIds = {}
   for _, event in ipairs(events) do
     if event.eventType == "task.read" then
@@ -86,7 +101,7 @@ local function reduceTasks(events)
     end
   end
 
-  local currentPanes = activePaneIds()
+  local currentPanes = activePanes
   local latestBySession = {}
   for _, event in ipairs(events) do
     local isSessionEvent = event.eventType == "session.started"
@@ -196,7 +211,7 @@ local function hideBadge()
   while canvas:elementCount() > 1 do canvas:removeElement() end
 end
 
-local function refreshCanvas()
+refreshCanvas = function()
   if not canvas or testBadgeTimer then return end
   local count = unreadCount()
   if count == 0 then
@@ -739,6 +754,7 @@ end
 local function reloadEvents()
   local previousLatestId = latestTaskId
   local events = readEvents()
+  lastEvents = events
   local latestEvent = latestBubbleEvent(events)
   tasks = reduceTasks(events)
   latestTaskId = latestEvent and latestEvent.eventId or nil
@@ -746,6 +762,83 @@ local function reloadEvents()
   if previousLatestId and latestTaskId and previousLatestId ~= latestTaskId then
     showBubble(latestEvent)
   end
+end
+
+-- os.time({...})은 입력 필드를 로컬 시간으로 해석하지만 occurredAt은 항상 UTC(toISOString) 문자열이다.
+-- localUtcOffsetSeconds()는 (로컬 - UTC) 오프셋(KST면 +9h)을 반환한다.
+-- os.time(UTC 필드)는 실제 epoch보다 그 오프셋만큼 작게 나오므로(local_display(X) = utc_display(X+offset)
+-- 관계에서 X = 실제epoch - offset), 실제 epoch을 구하려면 오프셋을 더해야 한다.
+local function localUtcOffsetSeconds()
+  local now = os.time()
+  return os.difftime(now, os.time(os.date("!*t", now)))
+end
+
+local function parseOccurredAtUTC(occurredAt)
+  local year, month, day, hour, min, sec = tostring(occurredAt):match(
+    "(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)"
+  )
+  if not year then return nil end
+  local localAsIfUTC = os.time({
+    year = tonumber(year), month = tonumber(month), day = tonumber(day),
+    hour = tonumber(hour), min = tonumber(min), sec = tonumber(sec)
+  })
+  return localAsIfUTC + localUtcOffsetSeconds()
+end
+
+local lastPruneDateKey = "sidekick.lastPruneDate"
+
+-- events.jsonl이 무한히 커지는 것을 막기 위해 7일 지난 이벤트를 atomic rename으로 정리한다(DESIGN.md 14절).
+-- DESIGN.md 14절에 따라 UI 시작 시 하루 한 번만 수행한다.
+local function pruneOldEvents()
+  local today = os.date("%Y-%m-%d")
+  if hs.settings.get(lastPruneDateKey) == today then return end
+  hs.settings.set(lastPruneDateKey, today)
+
+  local file = io.open(config.eventsFile, "r")
+  if not file then return end
+
+  local cutoff = os.time() - 7 * 24 * 60 * 60
+  local kept = {}
+  local removedAny = false
+  for line in file:lines() do
+    local ok, value = pcall(hs.json.decode, line)
+    local occurredAt = ok and type(value) == "table" and value.occurredAt
+    local keep = true
+    if occurredAt then
+      local eventTime = parseOccurredAtUTC(occurredAt)
+      if eventTime then
+        keep = eventTime >= cutoff
+      end
+    end
+    if keep then
+      table.insert(kept, line)
+    else
+      removedAny = true
+    end
+  end
+  -- 읽는 동안 hook이 새 줄을 append했을 수 있으므로, 읽은 지점 이후 추가된 바이트를 보존해 유실을 막는다.
+  local readUpTo = file:seek()
+  file:close()
+
+  if not removedAny then return end
+
+  local tmpPath = config.eventsFile .. ".tmp"
+  local tmpFile = io.open(tmpPath, "w")
+  if not tmpFile then return end
+  for _, line in ipairs(kept) do
+    tmpFile:write(line, "\n")
+  end
+
+  local tailFile = io.open(config.eventsFile, "r")
+  if tailFile then
+    tailFile:seek("set", readUpTo)
+    local tail = tailFile:read("a")
+    tailFile:close()
+    if tail and tail ~= "" then tmpFile:write(tail) end
+  end
+
+  tmpFile:close()
+  os.rename(tmpPath, config.eventsFile)
 end
 
 local function createCanvas()
@@ -835,19 +928,28 @@ function sidekick.start(options)
   config.nodeBinDir = (options and options.nodeBinDir) or findNodeBinDir()
   config.bubbleDuration = options and options.bubbleDuration or 8
 
+  pruneOldEvents()
   createCanvas()
   reloadEvents()
+  refreshActivePanes()
   watcher = hs.pathwatcher.new(config.home .. "/state", function()
-    hs.timer.doAfter(0.1, reloadEvents)
+    if reloadDebounceTimer then reloadDebounceTimer:stop() end
+    reloadDebounceTimer = hs.timer.doAfter(0.1, function()
+      reloadDebounceTimer = nil
+      reloadEvents()
+    end)
   end)
   watcher:start()
-  paneTimer = hs.timer.doEvery(2, reloadEvents)
+  -- 닫힌 tmux pane 정리는 비동기 캐시 갱신만으로 충분하므로 더 이상 2초마다 전체 파일을 재파싱하지 않는다.
+  paneTimer = hs.timer.doEvery(5, refreshActivePanes)
   return sidekick
 end
 
 function sidekick.stop()
   if watcher then watcher:stop(); watcher = nil end
   if paneTimer then paneTimer:stop(); paneTimer = nil end
+  if reloadDebounceTimer then reloadDebounceTimer:stop(); reloadDebounceTimer = nil end
+  if paneRefreshTask then paneRefreshTask:terminate(); paneRefreshTask = nil end
   stopDragTracking()
   hideBubble()
   hideMenu()
