@@ -134,8 +134,10 @@ reduceTasks = function(events)
     end
   end
 
-  -- 같은 pane에 새 세션이 시작된 경우 가장 최근 세션만 유지
+  -- tmux pane이 있는 작업은 pane 기준으로 최신 세션만 유지하고,
+  -- tmux 밖에서 실행된 작업은 세션 기준으로 표시하되 이동 기능은 제공하지 않는다.
   local latestByPane = {}
+  local withoutTmux = {}
   for _, event in pairs(latestBySession) do
     local paneId = event.tmux and event.tmux.paneId
     if paneId and (currentPanes == nil or currentPanes[paneId]) then
@@ -143,11 +145,16 @@ reduceTasks = function(events)
       if not existing or tostring(event.occurredAt) > tostring(existing.occurredAt) then
         latestByPane[paneId] = event
       end
+    elseif not paneId then
+      table.insert(withoutTmux, event)
     end
   end
 
   local completed = {}
   for _, event in pairs(latestByPane) do
+    table.insert(completed, event)
+  end
+  for _, event in ipairs(withoutTmux) do
     table.insert(completed, event)
   end
   table.sort(completed, function(a, b)
@@ -279,9 +286,21 @@ local function hideMenu()
   if menuDismissCanvas then menuDismissCanvas:delete(); menuDismissCanvas = nil end
 end
 
+local function canFocusTask(task)
+  return task and task.tmux and task.tmux.paneId
+end
+
+local function markTaskRead(task)
+  if not task or not task.eventId then return end
+  newCliTask(nil, { "read", task.eventId }):start()
+  task.unread = false
+  refreshCanvas()
+end
+
 local function focusTask(task)
-  if not task.tmux or not task.tmux.paneId then
+  if not canFocusTask(task) then
     hs.alert.show("이 작업은 tmux pane 정보가 없어요")
+    markTaskRead(task)
     return
   end
 
@@ -293,9 +312,7 @@ local function focusTask(task)
   hs.application.launchOrFocusByBundleID("com.mitchellh.ghostty")
   newCliTask(function(exitCode, _, stderr)
     if exitCode == 0 then
-      newCliTask(nil, { "read", task.eventId }):start()
-      task.unread = false
-      refreshCanvas()
+      markTaskRead(task)
     else
       hs.alert.show("pane 이동 실패: " .. (stderr ~= "" and stderr or "pane closed"))
     end
@@ -343,9 +360,12 @@ local function showBubble(task)
   else
     result = "작업 완료"
   end
-  local preview = task.promptPreview or task.summaryPreview or "클릭하면 작업 화면으로 이동해요"
+  local focusable = canFocusTask(task)
+  local preview = task.promptPreview or task.summaryPreview or "작업 내용 없음"
   preview = truncateText(preview, 86)
   local title = string.format("%s · %s · %s", agent, task.repo or "unknown", result)
+  local actionText = focusable and "클릭하면 해당 tmux pane으로 이동해요"
+    or "tmux가 아닌 세션이라 이동은 지원하지 않아요"
 
   bubble = hs.canvas.new(bubbleFrame())
   bubble:level(hs.canvas.windowLevels.overlay)
@@ -390,7 +410,7 @@ local function showBubble(task)
     },
     {
       type = "text",
-      text = "클릭하면 해당 tmux pane으로 이동해요",
+      text = actionText,
       textColor = { red = 0.55, green = 0.76, blue = 1, alpha = 1 },
       textFont = ".AppleSystemUIFont",
       textSize = 12,
@@ -402,7 +422,11 @@ local function showBubble(task)
   bubble:mouseCallback(function(_, message)
     if message == "mouseUp" then
       hideBubble()
-      focusTask(task)
+      if focusable then
+        focusTask(task)
+      else
+        markTaskRead(task)
+      end
     end
   end)
   bubble:show()
@@ -518,14 +542,16 @@ local function showMenu()
         or task.status == "failed" and "실패"
         or task.status == "idle" and "대기"
         or "완료"
+      local focusLabel = canFocusTask(task) and "이동 가능" or "이동 불가"
       local marker = task.unread and "● " or ""
       local title = string.format(
-        "%s[%s] %s · #%s · %s — %s",
+        "%s[%s] %s · #%s · %s · %s — %s",
         marker,
         task.agent or "agent",
         task.repo or "unknown",
         task.turnNumber or "?",
         status,
+        focusLabel,
         truncateText(task.promptPreview or task.summaryPreview or "작업 내용 없음", 30)
       )
       currentMenu:appendElements({
@@ -581,7 +607,11 @@ local function showMenu()
     if index and selectedTasks[index] then
       local task = selectedTasks[index]
       hideMenu()
-      focusTask(task)
+      if canFocusTask(task) then
+        focusTask(task)
+      else
+        markTaskRead(task)
+      end
     end
   end)
   currentMenu:show()

@@ -1,7 +1,7 @@
 # Sidekick
 
-Codex와 Claude Code 작업 완료를 캐릭터 위젯으로 표시하고, 클릭하면 작업하던
-Ghostty tmux pane으로 이동하는 macOS 로컬 도구다.
+Codex와 Claude Code 작업 완료를 캐릭터 위젯으로 표시하고, tmux에서 실행된
+작업은 클릭하면 작업하던 Ghostty tmux pane으로 이동하는 macOS 로컬 도구다.
 
 ## 현재 MVP
 
@@ -13,6 +13,7 @@ Ghostty tmux pane으로 이동하는 macOS 로컬 도구다.
 - Hammerspoon floating character와 최근 작업 목록
 - 캐릭터 드래그 이동과 마지막 위치 저장
 - 완료/실패 말풍선과 클릭 시 해당 pane 이동
+- tmux 밖에서 실행된 작업은 목록에 표시하되 이동 기능 비활성화
 - 캐릭터를 가리지 않는 작업 메뉴 자동 배치
 - 제목·본문·이동 안내가 분리된 고대비 말풍선
 - 우클릭 설정 메뉴에서 말풍선 on/off와 위치 초기화
@@ -42,7 +43,7 @@ bin/sidekick list
 
 - macOS
 - Ghostty
-- tmux
+- tmux (pane 이동 기능 사용 시)
 - Node.js
 - Hammerspoon
 
